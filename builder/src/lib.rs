@@ -1,75 +1,76 @@
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Fields};
+use quote::format_ident;
+use syn::parse_macro_input;
 
 #[proc_macro_derive(Builder)]
 pub fn derive(input: TokenStream) -> TokenStream {
-    // parse input tokens into a syntax tree
-    let input = parse_macro_input!(input as DeriveInput);
+    let input = parse_macro_input!(input as syn::DeriveInput);
 
-    let vis = &input.vis;
-    let name = &input.ident;
-    let builder_name = format!("{}Builder", &input.ident);
-    let builder_ident = syn::Ident::new(&builder_name, name.span());
+    let name = input.ident;
+    let builder_ident = format_ident!("{}Builder", name);
 
-    let struct_data = match &input.data {
-        syn::Data::Struct(data_struct) => data_struct,
-        _ => unimplemented!(),
+    let fields = if let syn::Data::Struct(data_struct) = input.data {
+        if let syn::Fields::Named(fields) = data_struct.fields {
+            fields.named
+        } else {
+            unimplemented!()
+        }
+    } else {
+        unimplemented!()
     };
 
-    let fields = match &struct_data.fields {
-        Fields::Named(fields) => fields,
-        _ => unimplemented!(),
-    };
-
-    let struct_fields = fields.named.iter().map(|f| {
+    let option_fields = fields.iter().map(|f| {
         let name = &f.ident;
         let ty = &f.ty;
-        quote! {
-            #name: Option<#ty>,
+
+        quote::quote! {
+            #name: std::option::Option<#ty>,
         }
     });
 
-    let init_fields = fields.named.iter().map(|f| {
+    let builder_fields = fields.iter().map(|f| {
         let name = &f.ident;
-        quote! {
-            #name: None,
+
+        quote::quote! {
+            #name: std::option::Option::None,
         }
     });
 
-    let setters = fields.named.iter().map(|f| {
+    let builder_setters = fields.iter().map(|f| {
         let name = &f.ident;
         let ty = &f.ty;
-        quote! {
-            pub fn #name (&mut self, #name: #ty) -> &mut Self {
-                self.#name = Some(#name);
+
+        quote::quote! {
+            fn #name (&mut self, #name: #ty) -> &mut Self {
+                self.#name = std::option::Option::Some(#name);
                 self
             }
         }
     });
 
-    let built_fields = fields.named.iter().map(|f| {
+    let built_fields = fields.iter().map(|f| {
         let name = &f.ident;
-        quote! {
-            #name: self.#name.clone().ok_or("not built!".to_owned())?,
+
+        quote::quote! {
+            #name: self.#name.clone().ok_or("field not set")?,
         }
     });
 
-    let expanded = quote! {
-        #vis struct #builder_ident {
-            #(#struct_fields)*
+    let expanded = quote::quote! {
+        pub struct #builder_ident {
+            #(#option_fields)*
         }
 
         impl #name {
-            #vis fn builder() -> #builder_ident {
+            pub fn builder() -> #builder_ident {
                 #builder_ident {
-                    #(#init_fields)*
+                    #(#builder_fields)*
                 }
             }
         }
 
         impl #builder_ident {
-            #(#setters)*
+            #(#builder_setters)*
 
             pub fn build(&mut self) -> Result<#name, Box<dyn std::error::Error>> {
                 Ok(#name {
