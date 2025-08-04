@@ -23,16 +23,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
         let name = &f.ident;
         let mut ty = &f.ty;
 
-        if let syn::Type::Path(path) = &f.ty {
-            if let Some(syn::PathSegment { ident, arguments }) = path.path.segments.last() {
-                if ident == "Option" {
-                    if let syn::PathArguments::AngleBracketed(args) = arguments {
-                        if let syn::GenericArgument::Type(typ) = args.args.first().unwrap() {
-                            ty = typ;
-                        }
-                    }
-                }
-            }
+        if let Some(t) = get_inner_ty("Option", ty) {
+            ty = t;
         }
 
         quote::quote! {
@@ -52,16 +44,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
         let name = &f.ident;
         let mut ty = &f.ty;
 
-        if let syn::Type::Path(path) = &f.ty {
-            if let Some(syn::PathSegment { ident, arguments }) = path.path.segments.last() {
-                if ident == "Option" {
-                    if let syn::PathArguments::AngleBracketed(args) = arguments {
-                        if let syn::GenericArgument::Type(typ) = args.args.first().unwrap() {
-                            ty = typ;
-                        }
-                    }
-                }
-            }
+        if let Some(t) = get_inner_ty("Option", ty) {
+            ty = t;
         }
 
         quote::quote! {
@@ -78,18 +62,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
             #name: self.#name.clone().ok_or("field not set")?,
         };
 
-        if let syn::Type::Path(path) = &f.ty {
-            if let Some(syn::PathSegment {
-                ident,
-                arguments: _,
-            }) = path.path.segments.last()
-            {
-                if ident == "Option" {
-                    field = quote::quote! {
-                        #name: self.#name.clone().or(None),
-                    };
-                }
-            }
+        if let Some(_) = get_inner_ty("Option", &f.ty) {
+            field = quote::quote! {
+                #name: self.#name.clone().or(None),
+            };
         }
 
         field
@@ -120,4 +96,26 @@ pub fn derive(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+fn get_inner_ty<'a>(wrapper: &'a str, ty: &'a syn::Type) -> Option<&'a syn::Type> {
+    if let syn::Type::Path(type_path) = ty {
+        if type_path.path.segments.len() != 1 || type_path.path.segments[0].ident != wrapper {
+            return None;
+        }
+
+        if let syn::PathArguments::AngleBracketed(ref generic_args) =
+            type_path.path.segments[0].arguments
+        {
+            if generic_args.args.len() != 1 {
+                return None;
+            }
+
+            let arg = generic_args.args.first().unwrap();
+            if let syn::GenericArgument::Type(ref inner_ty) = arg {
+                return Some(inner_ty);
+            }
+        }
+    }
+    None
 }
