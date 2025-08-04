@@ -21,7 +21,19 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     let option_fields = fields.iter().map(|f| {
         let name = &f.ident;
-        let ty = &f.ty;
+        let mut ty = &f.ty;
+
+        if let syn::Type::Path(path) = &f.ty {
+            if let Some(syn::PathSegment { ident, arguments }) = path.path.segments.last() {
+                if ident == "Option" {
+                    if let syn::PathArguments::AngleBracketed(args) = arguments {
+                        if let syn::GenericArgument::Type(typ) = args.args.first().unwrap() {
+                            ty = typ;
+                        }
+                    }
+                }
+            }
+        }
 
         quote::quote! {
             #name: std::option::Option<#ty>,
@@ -38,7 +50,19 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     let builder_setters = fields.iter().map(|f| {
         let name = &f.ident;
-        let ty = &f.ty;
+        let mut ty = &f.ty;
+
+        if let syn::Type::Path(path) = &f.ty {
+            if let Some(syn::PathSegment { ident, arguments }) = path.path.segments.last() {
+                if ident == "Option" {
+                    if let syn::PathArguments::AngleBracketed(args) = arguments {
+                        if let syn::GenericArgument::Type(typ) = args.args.first().unwrap() {
+                            ty = typ;
+                        }
+                    }
+                }
+            }
+        }
 
         quote::quote! {
             fn #name (&mut self, #name: #ty) -> &mut Self {
@@ -50,10 +74,25 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     let built_fields = fields.iter().map(|f| {
         let name = &f.ident;
-
-        quote::quote! {
+        let mut field = quote::quote! {
             #name: self.#name.clone().ok_or("field not set")?,
+        };
+
+        if let syn::Type::Path(path) = &f.ty {
+            if let Some(syn::PathSegment {
+                ident,
+                arguments: _,
+            }) = path.path.segments.last()
+            {
+                if ident == "Option" {
+                    field = quote::quote! {
+                        #name: self.#name.clone().or(None),
+                    };
+                }
+            }
         }
+
+        field
     });
 
     let expanded = quote::quote! {
