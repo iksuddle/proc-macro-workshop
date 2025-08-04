@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use quote::format_ident;
 use syn::parse_macro_input;
 
-#[proc_macro_derive(Builder)]
+#[proc_macro_derive(Builder, attributes(builder))]
 pub fn derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
@@ -56,6 +56,43 @@ pub fn derive(input: TokenStream) -> TokenStream {
         }
     });
 
+    // let builder_vec_setters = fields.iter().map(|f| {
+    //     let name = &f.ident;
+    //     let ty = &f.ty;
+    //
+    //     let mut vec_setter: Option<String> = None;
+    //     for attr in &f.attrs {
+    //         if let syn::Meta::List(meta_list) = &attr.meta {
+    //             if !meta_list.path.is_ident("builder") {
+    //                 continue;
+    //             }
+    //             if let syn::MacroDelimiter::Paren(_) = meta_list.delimiter {
+    //                 let expr: syn::Expr = attr.parse_args().unwrap();
+    //                 if let syn::Expr::Assign(syn::ExprAssign { right, .. }) = expr {
+    //                     if let syn::Expr::Lit(syn::ExprLit {
+    //                         lit: syn::Lit::Str(str),
+    //                         ..
+    //                     }) = *right
+    //                     {
+    //                         vec_setter = Some(str.value());
+    //                         break;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    //
+    //     quote::quote! {
+    //         fn #vec_setter (&mut self, #vec_setter: #ty) -> &mut Self {
+    //             match self.#name {
+    //                 std::option::Option::Some(v) => v.push(#vec_setter),
+    //                 std::option::Option::None => self.#name = vec![#vec_setter],
+    //             }
+    //             self
+    //         }
+    //     }
+    // });
+
     let built_fields = fields.iter().map(|f| {
         let name = &f.ident;
         let mut field = quote::quote! {
@@ -87,6 +124,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
         impl #builder_ident {
             #(#builder_setters)*
 
+            // #(#builder_vec_setters)*
+
             pub fn build(&mut self) -> Result<#name, Box<dyn std::error::Error>> {
                 Ok(#name {
                     #(#built_fields)*
@@ -100,6 +139,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
 fn get_inner_ty<'a>(wrapper: &'a str, ty: &'a syn::Type) -> Option<&'a syn::Type> {
     if let syn::Type::Path(type_path) = ty {
+        // todo: figure out why this is not the same as !path.is_ident(wrapper)
         if type_path.path.segments.len() != 1 || type_path.path.segments[0].ident != wrapper {
             return None;
         }
