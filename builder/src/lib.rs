@@ -9,12 +9,12 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let name = input.ident;
     let builder_ident = format_ident!("{}Builder", name);
 
-    let fields = if let syn::Data::Struct(data_struct) = input.data {
-        if let syn::Fields::Named(fields) = data_struct.fields {
-            fields.named
-        } else {
-            unimplemented!()
-        }
+    let fields = if let syn::Data::Struct(syn::DataStruct {
+        fields: syn::Fields::Named(fields),
+        ..
+    }) = input.data
+    {
+        fields.named
     } else {
         unimplemented!()
     };
@@ -57,40 +57,31 @@ pub fn derive(input: TokenStream) -> TokenStream {
     });
 
     // let builder_vec_setters = fields.iter().map(|f| {
-    //     let name = &f.ident;
-    //     let ty = &f.ty;
-    //
-    //     let mut vec_setter: Option<String> = None;
     //     for attr in &f.attrs {
     //         if let syn::Meta::List(meta_list) = &attr.meta {
+    //             // check for #[builder(...)]
     //             if !meta_list.path.is_ident("builder") {
     //                 continue;
     //             }
-    //             if let syn::MacroDelimiter::Paren(_) = meta_list.delimiter {
-    //                 let expr: syn::Expr = attr.parse_args().unwrap();
-    //                 if let syn::Expr::Assign(syn::ExprAssign { right, .. }) = expr {
-    //                     if let syn::Expr::Lit(syn::ExprLit {
-    //                         lit: syn::Lit::Str(str),
-    //                         ..
-    //                     }) = *right
-    //                     {
-    //                         vec_setter = Some(str.value());
-    //                         break;
-    //                     }
+    //             // extract the each = "..."
+    //             let p = meta_list
+    //                 .parse_args_with(Punctuated::<ExprAssign, Token![,]>::parse_terminated)
+    //                 .unwrap();
+    //             let assignment = p.first().unwrap();
+    //             let left = assignment.left;
+    //             if let syn::Expr::Path(expr_path) = &*left {
+    //                 if expr_path.path.get_ident().unwrap() == "each" {
     //                 }
     //             }
+    //             // return Some(quote::quote! {
+    //             //     pub fn test() {
+    //             //         println!("{}", #left);
+    //             //     }
+    //             // });
     //         }
     //     }
     //
-    //     quote::quote! {
-    //         fn #vec_setter (&mut self, #vec_setter: #ty) -> &mut Self {
-    //             match self.#name {
-    //                 std::option::Option::Some(v) => v.push(#vec_setter),
-    //                 std::option::Option::None => self.#name = vec![#vec_setter],
-    //             }
-    //             self
-    //         }
-    //     }
+    //     None
     // });
 
     let built_fields = fields.iter().map(|f| {
@@ -99,7 +90,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             #name: self.#name.clone().ok_or("field not set")?,
         };
 
-        if let Some(_) = get_inner_ty("Option", &f.ty) {
+        if get_inner_ty("Option", &f.ty).is_some() {
             field = quote::quote! {
                 #name: self.#name.clone().or(None),
             };
