@@ -5,12 +5,20 @@ pub struct Command {
     executable: String,
     #[builder(each = "arg")]
     args: Vec<String>,
+    #[builder(each = "env")]
     env: Vec<String>,
     current_dir: Option<String>,
 }
 
 #[test]
 fn tests() {
+    // let command = Command::builder()
+    //     .executable("cargo".to_owned())
+    //     .arg("build".to_owned())
+    //     .arg("--release".to_owned())
+    //     .build()
+    //     .unwrap();
+
     let t = trybuild::TestCases::new();
     t.pass("tests/01-parse.rs");
     t.pass("tests/02-create-builder.rs");

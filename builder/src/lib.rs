@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::format_ident;
-use syn::parse_macro_input;
+use syn::{parse::Parse, parse_macro_input, ExprAssign};
 
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn derive(input: TokenStream) -> TokenStream {
@@ -39,8 +39,31 @@ pub fn derive(input: TokenStream) -> TokenStream {
             #name: std::option::Option::None,
         }
     });
+    let builder_vec_setters = fields.iter().map(|f| {
+        let name = get_meta_list_value(&f, "builder", "each");
+        if name.is_none() {
+            return None;
+        }
+
+        let vec_name = &f.ident;
+        let ty = get_inner_ty("Vec", &f.ty);
+        Some(quote::quote! {
+            pub fn #name (&mut self, #name: #ty) -> &mut Self{
+                match &mut self.#vec_name {
+                    Some(v) => v.push(#name),
+                    None => self.#vec_name = Some(vec![#name]),
+                }
+                self
+            }
+        })
+    });
 
     let builder_setters = fields.iter().map(|f| {
+        let name = get_meta_list_value(&f, "builder", "each");
+        if f.ident == name {
+            return None;
+        }
+
         let name = &f.ident;
         let mut ty = &f.ty;
 
@@ -48,51 +71,23 @@ pub fn derive(input: TokenStream) -> TokenStream {
             ty = t;
         }
 
-        quote::quote! {
-            fn #name (&mut self, #name: #ty) -> &mut Self {
+        Some(quote::quote! {
+            pub fn #name (&mut self, #name: #ty) -> &mut Self {
                 self.#name = std::option::Option::Some(#name);
                 self
             }
-        }
+        })
     });
-
-    // let builder_vec_setters = fields.iter().map(|f| {
-    //     for attr in &f.attrs {
-    //         if let syn::Meta::List(meta_list) = &attr.meta {
-    //             // check for #[builder(...)]
-    //             if !meta_list.path.is_ident("builder") {
-    //                 continue;
-    //             }
-    //             // extract the each = "..."
-    //             let p = meta_list
-    //                 .parse_args_with(Punctuated::<ExprAssign, Token![,]>::parse_terminated)
-    //                 .unwrap();
-    //             let assignment = p.first().unwrap();
-    //             let left = assignment.left;
-    //             if let syn::Expr::Path(expr_path) = &*left {
-    //                 if expr_path.path.get_ident().unwrap() == "each" {
-    //                 }
-    //             }
-    //             // return Some(quote::quote! {
-    //             //     pub fn test() {
-    //             //         println!("{}", #left);
-    //             //     }
-    //             // });
-    //         }
-    //     }
-    //
-    //     None
-    // });
 
     let built_fields = fields.iter().map(|f| {
         let name = &f.ident;
         let mut field = quote::quote! {
-            #name: self.#name.clone().ok_or("field not set")?,
+            #name: self.#name.clone().unwrap_or_default(),
         };
 
         if get_inner_ty("Option", &f.ty).is_some() {
             field = quote::quote! {
-                #name: self.#name.clone().or(None),
+                #name: self.#name.clone(),
             };
         }
 
@@ -115,7 +110,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         impl #builder_ident {
             #(#builder_setters)*
 
-            // #(#builder_vec_setters)*
+            #(#builder_vec_setters)*
 
             pub fn build(&mut self) -> Result<#name, Box<dyn std::error::Error>> {
                 Ok(#name {
@@ -126,6 +121,54 @@ pub fn derive(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+fn get_meta_list_value(
+    f: &syn::Field,
+    meta_list_path_ident: &str,
+    inner_path_ident: &str,
+) -> Option<syn::Ident> {
+    for attr in &f.attrs {
+        match &attr.meta {
+            syn::Meta::List(meta_list) => {
+                // ignore attributes that aren't like #[builder(...)]
+                if !meta_list.path.is_ident(meta_list_path_ident) {
+                    continue;
+                }
+                let p = attr
+                    .parse_args_with(ExprAssign::parse)
+                    .expect("error parsing attribute");
+
+                let left = p.left;
+
+                match &*left {
+                    syn::Expr::Path(expr_path) => {
+                        // ignore attributes that aren't like #[builder(each = "...")]
+                        if !expr_path.path.is_ident(inner_path_ident) {
+                            continue;
+                        }
+                    }
+                    _ => unimplemented!(),
+                };
+
+                // extract the string literal
+                let right = p.right;
+                let name = match &*right {
+                    syn::Expr::Lit(expr_lit) => match &expr_lit.lit {
+                        syn::Lit::Str(lit_str) => lit_str.value(),
+                        _ => unimplemented!(),
+                    },
+                    _ => unimplemented!(),
+                };
+
+                let name = quote::format_ident!("{}", name);
+                return Some(name);
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    None
 }
 
 fn get_inner_ty<'a>(wrapper: &'a str, ty: &'a syn::Type) -> Option<&'a syn::Type> {
