@@ -1,6 +1,7 @@
 use proc_macro::TokenStream;
 use quote::format_ident;
-use syn::{parse::Parse, parse_macro_input, ExprAssign};
+use syn::parse::Parse;
+use syn::parse_macro_input;
 
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn derive(input: TokenStream) -> TokenStream {
@@ -39,11 +40,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
             #name: std::option::Option::None,
         }
     });
+
     let builder_vec_setters = fields.iter().map(|f| {
-        let name = get_meta_list_value(&f, "builder", "each");
-        if name.is_none() {
-            return None;
-        }
+        let builder_attr = get_attr(f, "builder")?;
+        let name = get_meta_list_value(builder_attr, "each")?;
 
         let vec_name = &f.ident;
         let ty = get_inner_ty("Vec", &f.ty);
@@ -59,9 +59,12 @@ pub fn derive(input: TokenStream) -> TokenStream {
     });
 
     let builder_setters = fields.iter().map(|f| {
-        let name = get_meta_list_value(&f, "builder", "each");
-        if f.ident == name {
-            return None;
+        let builder_attr = get_attr(f, "builder");
+        if let Some(attr) = builder_attr {
+            let name = get_meta_list_value(attr, "each");
+            if f.ident == name {
+                return None;
+            }
         }
 
         let name = &f.ident;
@@ -123,49 +126,43 @@ pub fn derive(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-fn get_meta_list_value(
-    f: &syn::Field,
-    meta_list_path_ident: &str,
-    inner_path_ident: &str,
-) -> Option<syn::Ident> {
+fn get_attr<'a>(f: &'a syn::Field, ident: &str) -> Option<&'a syn::Attribute> {
     for attr in &f.attrs {
-        match &attr.meta {
-            syn::Meta::List(meta_list) => {
-                // ignore attributes that aren't like #[builder(...)]
-                if !meta_list.path.is_ident(meta_list_path_ident) {
-                    continue;
+        if let syn::Meta::List(meta_list) = &attr.meta {
+            if meta_list.path.is_ident(ident) {
+                return Some(attr);
+            }
+        }
+    }
+
+    None
+}
+
+fn get_meta_list_value(attr: &syn::Attribute, inner_path_ident: &str) -> Option<syn::Ident> {
+    if let syn::Meta::List(_) = &attr.meta {
+        let expr_assign = attr
+            .parse_args_with(syn::ExprAssign::parse)
+            .expect("error parsing attr");
+
+        match *expr_assign.left {
+            syn::Expr::Path(expr_path) => {
+                if !expr_path.path.is_ident(inner_path_ident) {
+                    return None;
                 }
-                let p = attr
-                    .parse_args_with(ExprAssign::parse)
-                    .expect("error parsing attribute");
-
-                let left = p.left;
-
-                match &*left {
-                    syn::Expr::Path(expr_path) => {
-                        // ignore attributes that aren't like #[builder(each = "...")]
-                        if !expr_path.path.is_ident(inner_path_ident) {
-                            continue;
-                        }
-                    }
-                    _ => unimplemented!(),
-                };
-
-                // extract the string literal
-                let right = p.right;
-                let name = match &*right {
-                    syn::Expr::Lit(expr_lit) => match &expr_lit.lit {
-                        syn::Lit::Str(lit_str) => lit_str.value(),
-                        _ => unimplemented!(),
-                    },
-                    _ => unimplemented!(),
-                };
-
-                let name = quote::format_ident!("{}", name);
-                return Some(name);
             }
             _ => unimplemented!(),
         }
+
+        let name = match *expr_assign.right {
+            syn::Expr::Lit(expr_lit) => match &expr_lit.lit {
+                syn::Lit::Str(lit_str) => lit_str.value(),
+                _ => unimplemented!(),
+            },
+            _ => unimplemented!(),
+        };
+
+        let name = quote::format_ident!("{}", name);
+        return Some(name);
     }
 
     None
