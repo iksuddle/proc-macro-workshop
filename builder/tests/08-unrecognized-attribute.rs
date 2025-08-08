@@ -2,7 +2,7 @@
 // mistypes the inert attribute in various ways. This is a compile_fail test.
 //
 // The preferred way to report an error from a procedural macro is by including
-// an invocation of the eartandard library's compile_error macro in the code
+// an invocation of the standard library's compile_error macro in the code
 // emitted by the procedural macro.
 //
 //
